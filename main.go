@@ -64,8 +64,8 @@ func (f *Filter) Add(name string) {
 }
 
 func (f *Filter) MightContain(name string) bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	// return false if any position is off, otherwise true
 	for _, p := range f.positions(name) {
 		// box is p/8, switch position is p%8
