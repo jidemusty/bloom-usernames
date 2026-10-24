@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"sync"
 )
 
 type Filter struct {
 	boxes []uint8
 	m     int
 	k     int
+	mu    sync.RWMutex
 }
 
 // creating a struct is usually done by a constructor function named New...
@@ -54,12 +56,16 @@ func (f *Filter) positions(name string) []int {
 // capital letter means public to other packages. Lowercase is private.
 // That is the whole visibility system.
 func (f *Filter) Add(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	for _, p := range f.positions(name) {
 		f.boxes[p/8] |= 1 << (p % 8)
 	}
 }
 
 func (f *Filter) MightContain(name string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	// return false if any position is off, otherwise true
 	for _, p := range f.positions(name) {
 		// box is p/8, switch position is p%8

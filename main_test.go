@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 )
 
@@ -57,5 +58,32 @@ func TestFalsePositiveRate(t *testing.T) {
 
 	if rate > 0.015 {
 		t.Fatalf("failed for %.4f", rate)
+	}
+}
+
+func TestConcurrentAdd(t *testing.T) {
+	f := NewFilterFor(100_000, 0.01)
+
+	var wg sync.WaitGroup
+
+	for g := range 8 {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for i := g; i < 100_000; i += 8 {
+				f.Add(fmt.Sprintf("user%d", i))
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	for i := range 100_000 {
+		name := fmt.Sprintf("user%d", i)
+		if !f.MightContain(name) {
+			t.Fatalf("failed for %v", name)
+		}
 	}
 }
