@@ -1,7 +1,6 @@
-package main
+package bloom
 
 import (
-	"fmt"
 	"hash/fnv"
 	"math"
 	"sync"
@@ -87,26 +86,4 @@ func OptimalParams(n int, p float64) (m int, k int) {
 	k = int(math.Round(kFloat))
 
 	return m, k
-}
-
-func main() {
-	f := NewFilter(10, 2)
-	f.Add("alice")
-	f.Add("bob")
-	f.Add("erin")
-
-	fmt.Println(f.MightContain("alice"), f.MightContain("bob"), f.MightContain("erin"))
-	fmt.Println(f.MightContain("carol"), f.MightContain("dave"), f.MightContain("gina"))
-
-	var box uint8 = 0
-	fmt.Printf("%08b\n", box)
-
-	box |= 1 << 3
-	fmt.Printf("%08b\n", box)
-
-	box |= 1 << 6
-	fmt.Printf("%08b\n", box)
-
-	fmt.Println(box&(1<<3) != 0)
-	fmt.Println(box&(1<<5) != 0)
 }
