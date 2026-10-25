@@ -35,6 +35,7 @@ func (s *server) handleCheck(w http.ResponseWriter, r *http.Request) {
 	var taken bool
 	err = s.pool.QueryRow(r.Context(), "SELECT EXISTS (SELECT 1 FROM users WHERE username = $1)", cleanedName).Scan(&taken)
 	if err != nil {
+		log.Printf("check %q: %v", cleanedName, err)
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
@@ -50,9 +51,10 @@ func (s *server) handleCheck(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	ctx := context.Background()
+
 	pool, err := pgxpool.New(ctx, "postgres://localhost:5432/bloom_usernames")
 	if err != nil {
-		log.Fatalf("Unable to connect to database pool: %v\n", err)
+		log.Fatalf("Unable to connect to database pool: %v", err)
 	}
 
 	defer pool.Close()
@@ -68,8 +70,8 @@ func main() {
 	mux.HandleFunc("GET /api/check", s.handleCheck)
 
 	log.Println("listening on :8080")
-	// log.Fatal(http.ListenAndServe(":8080", mux))
-	if err := http.ListenAndServe(":8080", mux); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Server forced to shutdown: %v\n", err)
-	}
+	log.Fatal(http.ListenAndServe(":8080", mux))
+	// if err := http.ListenAndServe(":8080", mux); err != nil && err != http.ErrServerClosed {
+	// 	log.Fatalf("Server forced to shutdown: %v\n", err)
+	// }
 }
