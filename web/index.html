@@ -158,8 +158,9 @@
 
       async function handleSignup() {
         const username = usernameInput.value;
+        const cleaned = raw.trim().toLowerCase();
 
-        if (!username || !usernameRegex.test(username)) {
+        if (!usernameRegex.test(cleaned)) {
           statusDiv.innerHTML = `<span class="error">Please enter a valid username before signing up.</span>`;
           return;
         }
