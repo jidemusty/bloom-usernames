@@ -157,7 +157,7 @@
       }
 
       async function handleSignup() {
-        const username = usernameInput.value;
+        const raw = usernameInput.value;
         const cleaned = raw.trim().toLowerCase();
 
         if (!usernameRegex.test(cleaned)) {
@@ -171,7 +171,7 @@
           const response = await fetch("/api/signup", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username: username }),
+            body: JSON.stringify({ username: raw }),
           });
 
           if (response.status === 201) {
