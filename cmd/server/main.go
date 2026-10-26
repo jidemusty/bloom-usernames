@@ -185,6 +185,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/check", s.handleCheck)
 	mux.HandleFunc("POST /api/signup", s.handleSignup)
+	mux.Handle("GET /", http.FileServer(http.Dir("web")))
 
 	log.Println("listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bloom usernames</title>
+    <style>
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
+        margin: 40px auto;
+        max-width: 400px;
+        padding: 0 20px;
+      }
+      .form-group {
+        margin-bottom: 15px;
+      }
+      input {
+        padding: 8px 12px;
+        font-size: 16px;
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+      button {
+        padding: 10px 16px;
+        font-size: 16px;
+        background-color: #0066cc;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        width: 100%;
+      }
+      button:hover {
+        background-color: #0052a3;
+      }
+      .status {
+        margin-top: 15px;
+        font-size: 14px;
+        min-height: 20px;
+        line-height: 1.5;
+      }
+      .error {
+        color: #d32f2f;
+        font-size: 12px;
+      }
+      .success {
+        color: #2e7d32;
+        font-size: 12px;
+      }
+      .info {
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="form-group">
+      <input
+        type="text"
+        id="username"
+        placeholder="Enter username"
+        autocomplete="off"
+      />
+    </div>
+    <button id="signup-btn">Sign up</button>
+    <div id="status" class="status"></div>
+
+    <script>
+      const usernameInput = document.querySelector("#username");
+      const signupBtn = document.querySelector("#signup-btn");
+      const statusDiv = document.querySelector("#status");
+
+      const usernameRegex = /^[a-z0-9_]{3,20}$/;
+      const REGEX_RULE_TEXT = "3–20 characters: letters, numbers or _";
+
+      let debounceTimeout = null;
+      let abortController = null;
+
+      usernameInput.addEventListener("input", handleInput);
+      signupBtn.addEventListener("click", handleSignup);
+
+      function handleInput() {
+        const rawValue = usernameInput.value;
+        const cleaned = rawValue.trim().toLowerCase();
+
+        if (cleaned === "") {
+          clearTimeout(debounceTimeout);
+
+          if (abortController) {
+            abortController.abort();
+          }
+
+          statusDiv.innerHTML = "";
+          return;
+        }
+
+        if (!usernameRegex.test(cleaned)) {
+          clearTimeout(debounceTimeout);
+
+          if (abortController) {
+            abortController.abort();
+          }
+
+          statusDiv.innerHTML = `<span class="error">${REGEX_RULE_TEXT}</span>`;
+          return;
+        }
+
+        clearTimeout(debounceTimeout);
+        statusDiv.innerHTML = `<span class="info">checking…</span>`;
+        debounceTimeout = setTimeout(() => check(cleaned), 250);
+      }
+
+      async function check(username) {
+        if (abortController) {
+          abortController.abort();
+        }
+
+        abortController = new AbortController();
+        const browserStart = performance.now();
+
+        try {
+          const response = await fetch(
+            `/api/check?u=${encodeURIComponent(username)}`,
+            {
+              signal: abortController.signal,
+            },
+          );
+
+          if (!response.ok) {
+            throw new Error("Server error during username availability check");
+          }
+
+          const data = await response.json();
+          const totalMs = (performance.now() - browserStart).toFixed(1);
+
+          if (data.available) {
+            statusDiv.innerHTML = `
+                        <span class="success">✅ ${username} is available</span><br>
+                        <span class="info">Source: ${data.source} | Server: ${data.micros}µs | Total: ${totalMs}ms</span>
+                    `;
+          } else {
+            statusDiv.innerHTML = `
+                        <span class="error">❌ ${username} is taken</span><br>
+                        <span class="info">Source: ${data.source} | Server: ${data.micros}µs | Total: ${totalMs}ms</span>
+                    `;
+          }
+        } catch (err) {
+          if (err.name === "AbortError") {
+            return;
+          }
+
+          statusDiv.innerHTML = `<span class="error">Error checking availability</span>`;
+        }
+      }
+
+      async function handleSignup() {
+        const username = usernameInput.value;
+
+        if (!username || !usernameRegex.test(username)) {
+          statusDiv.innerHTML = `<span class="error">Please enter a valid username before signing up.</span>`;
+          return;
+        }
+
+        statusDiv.innerHTML = `<span class="info">Submitting registration…</span>`;
+
+        try {
+          const response = await fetch("/api/signup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: username }),
+          });
+
+          if (response.status === 201) {
+            const data = await response.json();
+            // Assumes server returns payload with a display name properties
+            const displayName = data.display_name || username;
+            statusDiv.innerHTML = `<span class="success">Welcome, ${displayName}!</span>`;
+          } else if (response.status === 409) {
+            statusDiv.innerHTML = `<span class="error">Just taken, try another</span>`;
+          } else if (response.status === 400) {
+            const serverText = await response.text();
+            statusDiv.innerHTML = `<span class="error">${serverText}</span>`;
+          } else {
+            statusDiv.innerHTML = `<span class="error">Unexpected server error: ${response.status}</span>`;
+          }
+        } catch (err) {
+          statusDiv.innerHTML = `<span class="error">Network error. Failed to complete sign up.</span>`;
+        }
+      }
+    </script>
+  </body>
+</html>
