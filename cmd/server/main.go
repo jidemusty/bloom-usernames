@@ -14,12 +14,13 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jidemusty/bloom-usernames/bloom"
+	"github.com/jidemusty/bloom-usernames/checker"
 	"github.com/jidemusty/bloom-usernames/username"
 )
 
 type server struct {
-	pool   *pgxpool.Pool
-	filter *bloom.Filter
+	pool    *pgxpool.Pool
+	checker checker.Checker
 }
 
 type checkResponse struct {
@@ -88,8 +89,10 @@ func (s *server) handleSignup(w http.ResponseWriter, r *http.Request) {
 	displayName := strings.TrimSpace(req.Username)
 
 	// add name to filter
-	if s.filter != nil {
-		s.filter.Add(cleanedName)
+	if err := s.checker.Add(r.Context(), cleanedName); err != nil {
+		log.Printf("checker add %q: %v", cleanedName, err)
+		http.Error(w, "please try again", http.StatusServiceUnavailable)
+		return
 	}
 
 	_, err = s.pool.Exec(r.Context(),
@@ -125,11 +128,17 @@ func (s *server) handleCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.filter != nil && !s.filter.MightContain(cleanedName) {
+	maybe, err := s.checker.MightContain(r.Context(), cleanedName)
+	if err != nil {
+		log.Printf("checker %s: %v", s.checker.Name(), err)
+		maybe = true
+	}
+
+	if !maybe {
 		writeJSON(w, http.StatusOK, checkResponse{
 			Username:  cleanedName,
 			Available: true,
-			Source:    "filter",
+			Source:    s.checker.Name(),
 			Micros:    time.Since(start).Microseconds(),
 		})
 
@@ -167,20 +176,27 @@ func main() {
 		log.Fatalf("Database ping failed: %v", err)
 	}
 
-	var f *bloom.Filter
+	var c checker.Checker
 
-	if os.Getenv("CHECKER") != "none" {
+	switch os.Getenv("CHECKER") {
+	case "none":
+		c = checker.None{}
+		log.Println("CHECKER=none: database only")
+	case "", "memory":
 		start := time.Now()
-		f, err = loadFilter(ctx, pool)
+		var f *bloom.Filter
+
+		f, err := loadFilter(ctx, pool)
 		if err != nil {
 			log.Fatalf("load filter %v", err)
 		}
+		c = checker.NewMemory(f)
 		log.Printf("filter loaded in %v", time.Since(start))
-	} else {
-		log.Println("CHECKER=none: database only")
+	default:
+		log.Fatalf("unknown CHECKER %q (want none, memory)", os.Getenv("CHECKER"))
 	}
 
-	s := &server{pool: pool, filter: f}
+	s := &server{pool: pool, checker: c}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/check", s.handleCheck)
@@ -189,7 +205,4 @@ func main() {
 
 	log.Println("listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))
-	// if err := http.ListenAndServe(":8080", mux); err != nil && err != http.ErrServerClosed {
-	// 	log.Fatalf("Server forced to shutdown: %v\n", err)
-	// }
 }
