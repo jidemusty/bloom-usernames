@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -22,6 +23,7 @@ import (
 type server struct {
 	pool    *pgxpool.Pool
 	checker checker.Checker
+	stats   stats
 }
 
 type checkResponse struct {
@@ -38,6 +40,22 @@ type signupRequest struct {
 type signupResponse struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
+}
+
+type stats struct {
+	checks            atomic.Int64
+	answeredByChecker atomic.Int64
+	dbQueries         atomic.Int64
+	falsePositives    atomic.Int64
+}
+
+type statsResponse struct {
+	Checker           string  `json:"checker"`
+	Checks            int64   `json:"checks"`
+	AnsweredByChecker int64   `json:"answered_by_checker"`
+	DBQueries         int64   `json:"db_queries"`
+	FalsePositives    int64   `json:"false_positives"`
+	FalsePositiveRate float64 `json:"false_positive_rate"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -199,6 +217,8 @@ func (s *server) handleCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.stats.checks.Add(1)
+
 	maybe, err := s.checker.MightContain(r.Context(), cleanedName)
 	if err != nil {
 		log.Printf("checker %s: %v", s.checker.Name(), err)
@@ -206,6 +226,7 @@ func (s *server) handleCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !maybe {
+		s.stats.answeredByChecker.Add(1)
 		writeJSON(w, http.StatusOK, checkResponse{
 			Username:  cleanedName,
 			Available: true,
@@ -217,6 +238,7 @@ func (s *server) handleCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var taken bool
+	s.stats.dbQueries.Add(1)
 	err = s.pool.QueryRow(r.Context(), "SELECT EXISTS (SELECT 1 FROM users WHERE username = $1)", cleanedName).Scan(&taken)
 	if err != nil {
 		log.Printf("check %q: %v", cleanedName, err)
@@ -224,11 +246,37 @@ func (s *server) handleCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !taken && s.checker.Name() != "none" {
+		s.stats.falsePositives.Add(1)
+	}
+
 	writeJSON(w, http.StatusOK, checkResponse{
 		Username:  cleanedName,
 		Available: !taken,
 		Source:    "db",
 		Micros:    time.Since(start).Microseconds(),
+	})
+}
+
+func (s *server) handleStats(w http.ResponseWriter, r *http.Request) {
+	answeredByChecker := s.stats.answeredByChecker.Load()
+	falsePositives := s.stats.falsePositives.Load()
+	checksCount := s.stats.checks.Load()
+	dbQueries := s.stats.dbQueries.Load()
+
+	var falsePositiveRate float64
+	denominator := answeredByChecker + falsePositives
+	if denominator > 0 {
+		falsePositiveRate = float64(falsePositives) / float64(denominator)
+	}
+
+	writeJSON(w, http.StatusOK, statsResponse{
+		Checker:           s.checker.Name(),
+		Checks:            checksCount,
+		AnsweredByChecker: answeredByChecker,
+		DBQueries:         dbQueries,
+		FalsePositives:    falsePositives,
+		FalsePositiveRate: falsePositiveRate,
 	})
 }
 
@@ -286,6 +334,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/check", s.handleCheck)
 	mux.HandleFunc("POST /api/signup", s.handleSignup)
+	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.Handle("GET /", http.FileServer(http.Dir("web")))
 
 	log.Println("listening on :8080")
