@@ -27,7 +27,9 @@ export const options = {
 
 export default function () {
   const name = Math.random() < 0.9 ? randomFree() : randomTaken();
-  const res = http.get(`${BASE}/api/check?u=${name}`);
+  const res = http.get(`${BASE}/api/check?u=${name}`, {
+    tags: { name: "check" },
+  });
 
   check(res, {
     "status is 200": (r) => r.status === 200,
